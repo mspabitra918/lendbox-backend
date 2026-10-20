@@ -1,11 +1,8 @@
-import { Body, Controller, Headers, HttpCode, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import {
-  ApiBadRequestResponse, ApiConflictResponse, ApiForbiddenResponse, ApiGoneResponse, ApiNotFoundResponse, ApiOperation,
-  ApiParam, ApiTags, ApiUnauthorizedResponse,
+  ApiConflictResponse, ApiForbiddenResponse, ApiGoneResponse, ApiNotFoundResponse, ApiOperation, ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { SkipThrottle } from '@nestjs/throttler';
-import type { Request } from 'express';
-import type { IncomingHttpHeaders } from 'http';
 import { ErrorResponseDto } from '../common/dto/api-response.dto';
 import { ApiWrapped } from '../common/decorators/api-wrapped.decorator';
 import { Ctx } from '../common/decorators/ctx.decorator';
@@ -14,7 +11,7 @@ import type { RequestContext } from '../common/utils/request-context';
 import { AgreementsService } from './agreements.service';
 import { SignAgreementDto, SigningTokenDto } from './dto/agreement.dto';
 
-@ApiTags('Loan agreements (applicant + webhooks)')
+@ApiTags('Loan agreements (applicant)')
 @Controller('agreements')
 export class AgreementsController {
   constructor(private readonly agreements: AgreementsService) {}
@@ -27,7 +24,7 @@ export class AgreementsController {
     description:
       'Called by the frontend signing page with the token from the emailed link. Validates the token (exists, ' +
       'not expired, not used, not voided), records that the agreement was **viewed** and returns either the document ' +
-      'to sign (`mode: internal`) or a provider-hosted signing URL (`mode: redirect`). **Opening is never treated as signing.** ' +
+      'to sign. **Opening is never treated as signing.** ' +
       'The token is sent in the body so it does not appear in API access logs.',
   })
   @ApiWrapped(null, {
@@ -48,7 +45,7 @@ export class AgreementsController {
   @HttpCode(200)
   @StrictRateLimit()
   @ApiOperation({
-    summary: 'Sign (internal provider)',
+    summary: 'Sign the agreement',
     description:
       'Requires the single-use token plus identity verification (full legal name, SSN last 4, date of birth) and explicit ' +
       'consent to electronic records and intent to sign. On success the agreement is marked signed with an evidence record ' +
@@ -67,31 +64,5 @@ export class AgreementsController {
   @ApiConflictResponse({ description: 'AGREEMENT_ALREADY_SIGNED', type: ErrorResponseDto })
   sign(@Body() dto: SignAgreementDto, @Ctx() ctx: RequestContext) {
     return this.agreements.sign(dto, ctx);
-  }
-
-  @Post('webhooks/:provider')
-  @HttpCode(200)
-  @SkipThrottle()
-  @ApiParam({ name: 'provider', example: 'docusign' })
-  @ApiOperation({
-    summary: 'E-signature provider webhook',
-    description:
-      '**Authentication:** the exact raw request body must carry a valid provider signature. DocuSign Connect: enable HMAC, ' +
-      'set DOCUSIGN_WEBHOOK_SECRET; the server verifies `X-DocuSign-Signature-1..N` = base64(HMAC-SHA256(secret, body)). ' +
-      'Unsigned/invalid requests get 401 and change nothing.\n\n' +
-      '**Idempotency:** events are recorded in `webhook_events` keyed by (provider, envelopeId:event). Redeliveries return ' +
-      '200 `{ duplicate: true }` with no side effects. Failed processing returns 500 so the provider retries.\n\n' +
-      '**Completion** is re-confirmed with the provider API before the agreement is marked signed.',
-  })
-  @ApiWrapped(null, { example: { received: true, duplicate: false, outcome: 'signed' } })
-  @ApiUnauthorizedResponse({ description: 'INVALID_WEBHOOK_SIGNATURE', type: ErrorResponseDto })
-  @ApiBadRequestResponse({ description: 'UNSUPPORTED_WEBHOOK_PAYLOAD', type: ErrorResponseDto })
-  webhook(
-    @Param('provider') provider: string,
-    @Req() req: Request & { rawBody?: Buffer },
-    @Headers() headers: IncomingHttpHeaders,
-    @Body() body: unknown,
-  ) {
-    return this.agreements.handleWebhook(provider, req.rawBody, headers, body);
   }
 }

@@ -1,9 +1,8 @@
 import {
-  BadRequestException, ConflictException, ForbiddenException, GoneException, Inject, Injectable, Logger,
+  ConflictException, ForbiddenException, GoneException, Inject, Injectable,
   NotFoundException, ServiceUnavailableException, UnauthorizedException,
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/sequelize';
-import type { IncomingHttpHeaders } from 'http';
 import { Op, QueryTypes, Transaction } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import { APP_CONFIG } from '../config/config.module';
@@ -20,38 +19,25 @@ import { renderAgreementDocument } from './agreement-document';
 import { AgreementStatus, OPEN_AGREEMENT_STATUSES } from './agreement-status';
 import { SendAgreementDto, SignAgreementDto } from './dto/agreement.dto';
 import { LoanAgreement } from './models/loan-agreement.model';
-import { WebhookEvent } from './models/webhook-event.model';
-import { ESIGN_PROVIDERS, ESignatureProvider, ProviderWebhookEvent } from './providers/esign-provider.interface';
 
 const normalizeName = (s: string) =>
   s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
 
-const STALE_WEBHOOK_MS = 5 * 60_000;
-
 @Injectable()
 export class AgreementsService {
-  private readonly logger = new Logger(AgreementsService.name);
-
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    @Inject(ESIGN_PROVIDERS) private readonly providers: Map<string, ESignatureProvider>,
     @InjectConnection() private readonly sequelize: Sequelize,
     @InjectModel(LoanAgreement) private readonly agreements: typeof LoanAgreement,
     @InjectModel(Application) private readonly applications: typeof Application,
-    @InjectModel(WebhookEvent) private readonly webhookEvents: typeof WebhookEvent,
     private readonly transitions: StatusTransitionService,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
   ) {}
 
-  private provider(name: string): ESignatureProvider {
-    const p = this.providers.get(name);
-    if (!p) throw new ServiceUnavailableException(`E-signature provider "${name}" is not configured.`);
-    return p;
-  }
-
-  private signer(app: Application) {
-    return { name: `${app.firstName} ${app.lastName}`, email: app.email, clientUserId: app.uuid };
+  /** Loan details shown to the applicant on the signing page (no sensitive fields). */
+  private loanSummary(app: Application) {
+    return { amount: Number(app.loanAmount), purpose: app.loanPurpose, otherPurpose: app.loanOtherPurpose };
   }
 
   private signingUrl(token: string) {
@@ -75,8 +61,6 @@ export class AgreementsService {
         message: 'Agreement sending is disabled until an approved (non-draft) agreement template is configured.',
       });
     }
-    const provider = this.provider(this.config.esign.provider);
-
     const outcome = await this.sequelize.transaction(async (t) => {
       const app = await this.applications.findByPk(applicationId, { transaction: t, lock: t.LOCK.UPDATE });
       if (!app) throw new NotFoundException('Application not found.');
@@ -104,7 +88,7 @@ export class AgreementsService {
       const agreement = await this.agreements.create(
         {
           applicationId,
-          provider: provider.name,
+          provider: 'internal',
           status: AgreementStatus.CREATED,
           signingTokenHash: sha256Hex(token),
           expiresAt,
@@ -113,16 +97,10 @@ export class AgreementsService {
         { transaction: t },
       );
       const documentHtml = renderAgreementDocument(app, this.config.esign.templateVersion, now);
-      const created = await provider.createAgreement({
-        agreementId: agreement.id,
-        applicationReference: app.reference,
-        documentHtml,
-        signer: this.signer(app),
-      });
       await agreement.update(
         {
-          providerReference: created.providerReference,
-          documentReference: created.documentReference,
+          providerReference: agreement.id,
+          documentReference: `internal://loan-agreements/${agreement.id}`,
           documentContent: documentHtml,
           documentSha256: sha256Hex(documentHtml),
           status: AgreementStatus.SENT,
@@ -136,14 +114,14 @@ export class AgreementsService {
         to: ApplicationStatus.PENDING_LOAN_AGREEMENT,
         actor: TransitionActor.AGREEMENT_INITIATION,
         adminId: admin.id,
-        metadata: { agreementId: agreement.id, provider: provider.name },
+        metadata: { agreementId: agreement.id, provider: agreement.provider },
         ctx,
         transaction: t,
       });
       await this.audit.record(
         {
           actorType: 'admin', actorId: admin.id, action: 'agreement.sent', entityType: 'loan_agreement', entityId: agreement.id,
-          metadata: { applicationId, provider: provider.name, expiresAt: expiresAt.toISOString(), documentSha256: agreement.documentSha256 },
+          metadata: { applicationId, provider: agreement.provider, expiresAt: expiresAt.toISOString(), documentSha256: agreement.documentSha256 },
           ctx,
         },
         t,
@@ -189,11 +167,6 @@ export class AgreementsService {
       { actorType: adminId ? 'admin' : 'system', actorId: adminId, action: `agreement.${status}`, entityType: 'loan_agreement', entityId: a.id, metadata: { reason }, ctx },
       t,
     );
-    const p = this.providers.get(a.provider);
-    if (p?.voidAgreement && a.providerReference && !expired) {
-      // Best effort: a provider-side failure must not block voiding locally.
-      await p.voidAgreement(a.providerReference, reason).catch((err: Error) => this.logger.warn(`Provider void failed for ${a.id}: ${err.message}`));
-    }
   }
 
   async listForApplication(applicationId: string) {
@@ -284,25 +257,17 @@ export class AgreementsService {
         await this.audit.record({ actorType: 'applicant', action: 'agreement.viewed', entityType: 'loan_agreement', entityId: a.id, ctx }, t);
       });
     }
-    const provider = this.provider(a.provider);
-    const base = { agreementId: a.id, reference: app.reference, firstName: app.firstName, expiresAt: a.expiresAt };
-    if (provider.signingMode === 'redirect' && provider.createSigningUrl && a.providerReference) {
-      return { ...base, mode: 'redirect' as const, signingUrl: await provider.createSigningUrl(a.providerReference, this.signer(app)) };
-    }
     return {
-      ...base,
+      agreementId: a.id, reference: app.reference, firstName: app.firstName, expiresAt: a.expiresAt, loan: this.loanSummary(app),
       mode: 'internal' as const,
       document: { html: a.documentContent, sha256: a.documentSha256 },
       requiredVerification: ['fullName', 'ssnLast4', 'dateOfBirth', 'consentToElectronicRecords', 'agreeToTerms'],
     };
   }
 
-  /** Internal provider only: verify token + identity, then record the signature. */
+  /** Verify token + identity, then record the signature. */
   async sign(dto: SignAgreementDto, ctx: RequestContext) {
     const pre = await this.findByToken(dto.token);
-    if (this.provider(pre.provider).signingMode !== 'internal') {
-      throw new BadRequestException({ code: 'PROVIDER_HOSTED_SIGNING', message: 'This agreement is signed on the e-signature provider’s page.' });
-    }
     await this.assertSignable(pre);
     const app = await this.applications.findByPk(pre.applicationId);
     if (!app) throw new NotFoundException('Application not found.');
@@ -352,7 +317,7 @@ export class AgreementsService {
         },
         { transaction: t },
       );
-      await this.completeSigning(a, app, signedAt, 'applicant', ctx, t);
+      await this.completeSigning(a, app, signedAt, ctx, t);
       return a;
     });
     this.notifications.kick();
@@ -360,12 +325,15 @@ export class AgreementsService {
       agreementId: signed.id,
       status: signed.status,
       signedAt: signed.signedAt,
+      reference: app.reference,
+      signerName: signed.signerName,
+      loan: this.loanSummary(app),
       message: 'Thank you. Your signed agreement has been received. This is not a loan approval; we will contact you with a decision.',
     };
   }
 
   /** Shared post-signature steps: status transition, audit, confirmation email (same transaction). */
-  private async completeSigning(a: LoanAgreement, app: Application, signedAt: Date, actor: 'applicant' | 'esign_provider', ctx: RequestContext | undefined, t: Transaction) {
+  private async completeSigning(a: LoanAgreement, app: Application, signedAt: Date, ctx: RequestContext, t: Transaction) {
     await this.transitions.transition({
       applicationId: app.id,
       to: ApplicationStatus.LOAN_AGREEMENT_SIGNED,
@@ -375,7 +343,7 @@ export class AgreementsService {
       transaction: t,
     });
     await this.audit.record(
-      { actorType: actor, action: 'agreement.signed', entityType: 'loan_agreement', entityId: a.id, metadata: { applicationId: app.id, provider: a.provider }, ctx },
+      { actorType: 'applicant', action: 'agreement.signed', entityType: 'loan_agreement', entityId: a.id, metadata: { applicationId: app.id, provider: a.provider }, ctx },
       t,
     );
     await this.notifications.enqueue(
@@ -386,97 +354,4 @@ export class AgreementsService {
     );
   }
 
-  // ─── Provider webhooks ──────────────────────────────────────────────────
-
-  /**
-   * 1. authenticate (HMAC over the raw body) → 401 otherwise, nothing stored;
-   * 2. dedupe on (provider, eventId) — redeliveries return 200 without side effects;
-   * 3. apply in a transaction; on failure mark the event failed and return 500 so the provider retries.
-   */
-  async handleWebhook(providerName: string, rawBody: Buffer | undefined, headers: IncomingHttpHeaders, body: unknown) {
-    const provider = this.providers.get(providerName);
-    if (!provider?.verifyWebhook || !provider.parseWebhook) throw new NotFoundException('Unknown webhook provider.');
-    if (!rawBody || !provider.verifyWebhook(rawBody, headers)) {
-      this.logger.warn(`Rejected ${providerName} webhook: invalid signature`);
-      throw new UnauthorizedException({ code: 'INVALID_WEBHOOK_SIGNATURE', message: 'Invalid webhook signature.' });
-    }
-    const event = provider.parseWebhook(body);
-    if (!event) throw new BadRequestException({ code: 'UNSUPPORTED_WEBHOOK_PAYLOAD', message: 'Unrecognised webhook payload.' });
-
-    const record = await this.claimWebhookEvent(providerName, event, sha256Hex(rawBody));
-    if (!record) return { received: true, duplicate: true };
-
-    try {
-      const outcome = await this.sequelize.transaction((t) => this.applyWebhookEvent(provider, event, t));
-      await record.update({ status: outcome === 'ignored' ? 'ignored' : 'processed', processedAt: new Date(), error: null });
-      if (outcome === 'signed') this.notifications.kick();
-      return { received: true, duplicate: false, outcome };
-    } catch (err) {
-      await record.update({ status: 'failed', error: (err as Error).message.slice(0, 500) });
-      this.logger.error(`Webhook ${providerName} ${event.eventId} failed: ${(err as Error).message}`);
-      throw err;
-    }
-  }
-
-  /** Returns the event row to process, or null when it is a duplicate (already done / in flight). */
-  private async claimWebhookEvent(provider: string, event: ProviderWebhookEvent, payloadSha256: string) {
-    const [row, created] = await this.webhookEvents.findOrCreate({
-      where: { provider, eventId: event.eventId },
-      defaults: { provider, eventId: event.eventId, eventType: event.eventType, payloadSha256, status: 'processing' },
-    });
-    if (created) return row;
-    const stale = row.status === 'processing' && Date.now() - row.receivedAt.getTime() > STALE_WEBHOOK_MS;
-    if (row.status === 'failed' || stale) {
-      const [n] = await this.webhookEvents.update(
-        { status: 'processing', receivedAt: new Date() },
-        { where: { id: row.id, status: row.status } },
-      );
-      return n === 1 ? row.reload() : null;
-    }
-    return null;
-  }
-
-  private async applyWebhookEvent(provider: ESignatureProvider, event: ProviderWebhookEvent, t: Transaction): Promise<'signed' | 'declined' | 'voided' | 'ignored'> {
-    if (event.type === 'other') return 'ignored';
-    const a = await this.agreements.findOne({
-      where: { provider: provider.name, providerReference: event.providerReference },
-      transaction: t,
-      lock: t.LOCK.UPDATE,
-    });
-    if (!a) {
-      this.logger.warn(`Webhook for unknown ${provider.name} reference; ignoring`);
-      return 'ignored';
-    }
-    if (!OPEN_AGREEMENT_STATUSES.includes(a.status)) return 'ignored'; // already terminal ⇒ idempotent
-
-    if (event.type === 'completed') {
-      if (provider.confirmCompleted && !(await provider.confirmCompleted(event.providerReference))) {
-        throw new ConflictException('Provider does not report the envelope as completed.');
-      }
-      const app = await this.applications.findByPk(a.applicationId, { transaction: t });
-      if (!app) return 'ignored';
-      const signedAt = event.occurredAt && !Number.isNaN(Date.parse(event.occurredAt)) ? new Date(event.occurredAt) : new Date();
-      await a.update(
-        {
-          status: AgreementStatus.SIGNED,
-          signedAt,
-          tokenUsedAt: new Date(),
-          signerName: `${app.firstName} ${app.lastName}`,
-          signedDocumentReference: `${a.documentReference}/documents/combined`,
-          signatureEvidence: { method: `${provider.name}_webhook`, eventId: event.eventId, eventType: event.eventType, providerReference: event.providerReference, confirmedWithProvider: Boolean(provider.confirmCompleted) },
-        },
-        { transaction: t },
-      );
-      await this.completeSigning(a, app, signedAt, 'esign_provider', undefined, t);
-      return 'signed';
-    }
-
-    const status = event.type === 'declined' ? AgreementStatus.DECLINED : AgreementStatus.VOIDED;
-    await a.update({ status, voidedAt: new Date(), voidReason: `Provider event ${event.eventType}` }, { transaction: t });
-    await this.audit.record(
-      { actorType: 'esign_provider', action: `agreement.${status}`, entityType: 'loan_agreement', entityId: a.id, metadata: { eventId: event.eventId } },
-      t,
-    );
-    return event.type === 'declined' ? 'declined' : 'voided';
-  }
 }

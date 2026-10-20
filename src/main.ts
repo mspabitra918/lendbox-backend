@@ -15,8 +15,7 @@ async function createApp(): Promise<{ app: NestExpressApplication; config: AppCo
     json: process.env.NODE_ENV === 'production',
     logLevels: LEVELS.slice(0, Math.max(1, LEVELS.indexOf(level) + 1)) as never,
   });
-  // rawBody is required to verify webhook HMAC signatures over the exact bytes received.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true, bufferLogs: true, logger });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true, logger });
   const config = configureApp(app);
   setupSwagger(app, config);
   return { app, config };

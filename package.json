@@ -21,9 +21,7 @@
     "admin:create": "node dist/cli/create-admin.js",
     "admin:create:dev": "ts-node -r tsconfig-paths/register src/cli/create-admin.ts",
     "test": "jest --config jest.config.js --selectProjects unit",
-    "test:e2e": "jest --config jest.config.js --selectProjects e2e --runInBand",
-    "test:all": "jest --config jest.config.js --runInBand",
-    "test:cov": "jest --config jest.config.js --runInBand --coverage"
+    "test:cov": "jest --config jest.config.js --coverage"
   },
   "dependencies": {
     "@nestjs/common": "11.1.6",

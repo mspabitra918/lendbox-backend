@@ -6,8 +6,7 @@ import { validateEnv } from './env.validation';
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
-const envFile = process.env.DOTENV_PATH
-  ?? path.resolve(process.cwd(), process.env.NODE_ENV === 'test' ? '.env.test' : '.env');
+const envFile = path.resolve(process.cwd(), '.env');
 
 @Global()
 @Module({

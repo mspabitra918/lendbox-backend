@@ -3,6 +3,23 @@ import { EnvironmentVariables } from './env.validation';
 const splitOrigins = (v: string) =>
   v.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean);
 
+/** DATABASE_URL wins over DB_*; sslmode=require (or stricter) in the URL turns SSL on. */
+function dbConnection(env: EnvironmentVariables) {
+  if (!env.DATABASE_URL) {
+    return { host: env.DB_HOST, port: env.DB_PORT, name: env.DB_NAME, user: env.DB_USER, password: env.DB_PASSWORD, ssl: env.DB_SSL };
+  }
+  const url = new URL(env.DATABASE_URL);
+  const sslmode = url.searchParams.get('sslmode');
+  return {
+    host: url.hostname,
+    port: url.port ? Number(url.port) : 5432,
+    name: decodeURIComponent(url.pathname.replace(/^\//, '')),
+    user: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
+    ssl: env.DB_SSL || ['require', 'verify-ca', 'verify-full'].includes(sslmode ?? ''),
+  };
+}
+
 export const buildConfig = (env: EnvironmentVariables) => ({
   env: env.NODE_ENV,
   isProduction: env.NODE_ENV === 'production',
@@ -21,12 +38,7 @@ export const buildConfig = (env: EnvironmentVariables) => ({
     signingPagePath: env.SIGNING_PAGE_PATH,
   },
   db: {
-    host: env.DB_HOST,
-    port: env.DB_PORT,
-    name: env.DB_NAME,
-    user: env.DB_USER,
-    password: env.DB_PASSWORD,
-    ssl: env.DB_SSL,
+    ...dbConnection(env),
     sslRejectUnauthorized: env.DB_SSL_REJECT_UNAUTHORIZED,
     poolMax: env.DB_POOL_MAX,
   },
@@ -63,20 +75,9 @@ export const buildConfig = (env: EnvironmentVariables) => ({
     maxAttempts: env.EMAIL_MAX_ATTEMPTS,
   },
   esign: {
-    provider: env.ESIGN_PROVIDER,
     linkExpiresHours: env.SIGNING_LINK_EXPIRES_HOURS,
     maxVerificationAttempts: env.SIGNING_MAX_VERIFICATION_ATTEMPTS,
     templateVersion: env.AGREEMENT_TEMPLATE_VERSION,
-    docusign: {
-      basePath: env.DOCUSIGN_BASE_PATH,
-      oauthBase: env.DOCUSIGN_OAUTH_BASE,
-      accountId: env.DOCUSIGN_ACCOUNT_ID,
-      integrationKey: env.DOCUSIGN_INTEGRATION_KEY,
-      userId: env.DOCUSIGN_USER_ID,
-      privateKeyBase64: env.DOCUSIGN_PRIVATE_KEY_BASE64,
-      webhookSecret: env.DOCUSIGN_WEBHOOK_SECRET,
-      returnUrl: env.DOCUSIGN_RETURN_URL,
-    },
   },
 });
 

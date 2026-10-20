@@ -24,7 +24,7 @@ export class AdminAgreementsController {
     summary: 'Send loan agreement',
     description:
       'Allowed when the application is `received` or `pending_loan_agreement`. Creates the agreement, registers it with the ' +
-      'configured e-signature provider, generates a single-use signing token (only its SHA-256 is stored), queues the ' +
+      'generates a single-use signing token (only its SHA-256 is stored), queues the ' +
       'invitation email and moves the application to `pending_loan_agreement` — atomically.\n\n' +
       'Idempotent: if an open, unexpired agreement exists it is returned (`created: false`) and no email is sent. ' +
       'Use `resend: true` to void it and issue a new one. Expired agreements are replaced automatically.',

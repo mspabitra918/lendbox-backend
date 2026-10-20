@@ -4,17 +4,21 @@
 const path = require('path');
 const env = process.env.NODE_ENV || 'development';
 require('dotenv').config({
-  path: process.env.DOTENV_PATH || path.resolve(process.cwd(), env === 'test' ? '.env.test' : '.env'),
+  path: path.resolve(process.cwd(), '.env'),
   quiet: true,
 });
 
-const ssl = String(process.env.DB_SSL).toLowerCase() === 'true';
+// DATABASE_URL (e.g. Neon) wins over the individual DB_* variables, as in the app.
+const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
+const ssl =
+  String(process.env.DB_SSL).toLowerCase() === 'true' ||
+  ['require', 'verify-ca', 'verify-full'].includes(url?.searchParams.get('sslmode') ?? '');
 const base = {
-  username: process.env.DB_USER,
-  password: process.env.DB_PASSWORD || null,
-  database: process.env.DB_NAME,
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT || 5432),
+  username: url ? decodeURIComponent(url.username) : process.env.DB_USER,
+  password: (url ? decodeURIComponent(url.password) : process.env.DB_PASSWORD) || null,
+  database: url ? decodeURIComponent(url.pathname.slice(1)) : process.env.DB_NAME,
+  host: url ? url.hostname : process.env.DB_HOST || 'localhost',
+  port: Number((url && url.port) || process.env.DB_PORT || 5432),
   dialect: 'postgres',
   logging: false,
   migrationStorageTableName: 'sequelize_meta',

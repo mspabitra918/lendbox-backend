@@ -41,7 +41,7 @@ export class EnvironmentVariables {
   ADMIN_APPLICATION_PATH = '/admin/applications';
 
   @IsOptional() @IsString()
-  SIGNING_PAGE_PATH = '/borrower/agreement/sign';
+  SIGNING_PAGE_PATH = '/borrower/sign-agreement';
 
   @Transform(toInt) @IsInt() @Min(0)
   TRUST_PROXY = 0;
@@ -56,10 +56,12 @@ export class EnvironmentVariables {
   LOG_LEVEL: 'error' | 'warn' | 'log' | 'debug' | 'verbose' = 'log';
 
   // Database
-  @IsString() @IsNotEmpty() DB_HOST: string;
+  // Either DATABASE_URL (e.g. Neon) or the individual DB_* variables.
+  @IsOptional() @Matches(/^postgres(ql)?:\/\/.+/, { message: 'DATABASE_URL must be a postgres:// or postgresql:// URL' }) DATABASE_URL?: string;
+  @ValidateIf((o: EnvironmentVariables) => !o.DATABASE_URL) @IsString() @IsNotEmpty() DB_HOST: string;
   @Transform(toInt) @IsInt() DB_PORT = 5432;
-  @IsString() @IsNotEmpty() DB_NAME: string;
-  @IsString() @IsNotEmpty() DB_USER: string;
+  @ValidateIf((o: EnvironmentVariables) => !o.DATABASE_URL) @IsString() @IsNotEmpty() DB_NAME: string;
+  @ValidateIf((o: EnvironmentVariables) => !o.DATABASE_URL) @IsString() @IsNotEmpty() DB_USER: string;
   @IsOptional() @IsString() DB_PASSWORD = '';
   @Transform(toBool) @IsBoolean() DB_SSL = false;
   @Transform(toBool) @IsBoolean() DB_SSL_REJECT_UNAUTHORIZED = true;
@@ -109,19 +111,10 @@ export class EnvironmentVariables {
   @Transform(toInt) @IsInt() @Min(1) @Max(20) EMAIL_MAX_ATTEMPTS = 5;
 
   // E-signature
-  @IsIn(['internal', 'docusign']) ESIGN_PROVIDER: 'internal' | 'docusign' = 'internal';
   @Transform(toInt) @IsInt() @Min(1) @Max(720) SIGNING_LINK_EXPIRES_HOURS = 72;
   @Transform(toInt) @IsInt() @Min(1) @Max(20) SIGNING_MAX_VERIFICATION_ATTEMPTS = 5;
   @IsString() AGREEMENT_TEMPLATE_VERSION = 'v0-draft';
 
-  @IsOptional() @IsString() DOCUSIGN_BASE_PATH = 'https://demo.docusign.net/restapi';
-  @IsOptional() @IsString() DOCUSIGN_OAUTH_BASE = 'account-d.docusign.com';
-  @ValidateIf((o: EnvironmentVariables) => o.ESIGN_PROVIDER === 'docusign') @IsString() @IsNotEmpty() DOCUSIGN_ACCOUNT_ID: string;
-  @ValidateIf((o: EnvironmentVariables) => o.ESIGN_PROVIDER === 'docusign') @IsString() @IsNotEmpty() DOCUSIGN_INTEGRATION_KEY: string;
-  @ValidateIf((o: EnvironmentVariables) => o.ESIGN_PROVIDER === 'docusign') @IsString() @IsNotEmpty() DOCUSIGN_USER_ID: string;
-  @ValidateIf((o: EnvironmentVariables) => o.ESIGN_PROVIDER === 'docusign') @IsString() @IsNotEmpty() DOCUSIGN_PRIVATE_KEY_BASE64: string;
-  @ValidateIf((o: EnvironmentVariables) => o.ESIGN_PROVIDER === 'docusign') @IsString() @MinLength(16) DOCUSIGN_WEBHOOK_SECRET: string;
-  @IsOptional() @IsString() DOCUSIGN_RETURN_URL = '';
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
