@@ -29,7 +29,7 @@ export class AgreementsController {
   })
   @ApiWrapped(null, {
     example: {
-      agreementId: '9a8b7c6d-1111-4222-8333-944455556666', reference: 'LB-7K3M9QX2', firstName: 'Jane', expiresAt: '2026-10-20T09:02:11.000Z',
+      agreementId: '9a8b7c6d-1111-4222-8333-944455556666', applicationId: '56T65T', firstName: 'Jane', expiresAt: '2026-10-20T09:02:11.000Z',
       mode: 'internal', document: { html: '<!doctype html>…', sha256: 'e3b0c442…' },
       requiredVerification: ['fullName', 'ssnLast4', 'dateOfBirth', 'consentToElectronicRecords', 'agreeToTerms'],
     },
@@ -49,7 +49,7 @@ export class AgreementsController {
     description:
       'Requires the single-use token plus identity verification (full legal name, SSN last 4, date of birth) and explicit ' +
       'consent to electronic records and intent to sign. On success the agreement is marked signed with an evidence record ' +
-      '(document hash, IP, user agent, timestamp) and the application moves to `loan_agreement_signed`. ' +
+      '(document hash, IP, user agent, timestamp). The application status is not changed. ' +
       'This does **not** approve the loan. After SIGNING_MAX_VERIFICATION_ATTEMPTS failures the link is locked.',
   })
   @ApiWrapped(null, {

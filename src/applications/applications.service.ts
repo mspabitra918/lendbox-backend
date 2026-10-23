@@ -134,7 +134,6 @@ export class ApplicationsService {
         const email = await this.confirmationEmailStatus(result.app.id);
         return {
           applicationId: result.app.id,
-          reference: result.app.reference,
           status: result.app.status,
           submittedAt: result.app.submittedAt.toISOString(),
           duplicate: result.duplicate,
@@ -291,7 +290,7 @@ export class ApplicationsService {
     await this.notifications.enqueue(
       "application_received",
       app.email,
-      { firstName: app.firstName, reference: app.reference, submittedAt },
+      { firstName: app.firstName, applicationId: app.id, submittedAt },
       {
         dedupeKey: `application:${app.id}:applicant_confirmation`,
         related,
@@ -303,7 +302,7 @@ export class ApplicationsService {
       "admin_new_application",
       this.config.mail.adminNotificationEmail,
       {
-        reference: app.reference,
+        applicationId: app.id,
         applicantName: `${app.firstName} ${app.lastName}`,
         submittedAt,
         loanAmount: new Intl.NumberFormat("en-US", {
@@ -334,14 +333,14 @@ export class ApplicationsService {
     );
   }
 
-  /** Applicant self-service lookup. Requires reference AND matching email; failures are indistinguishable. */
+  /** Applicant self-service lookup. Requires application id AND matching email; failures are indistinguishable. */
   async lookupStatus(id: string, email: string) {
     const app = await this.applications.findOne({
       where: { id, email },
     });
     if (!app)
       throw new NotFoundException(
-        "No application matches that reference and email.",
+        "No application matches that application ID and email.",
       );
     const history = await this.history.findAll({
       where: { applicationId: app.id },

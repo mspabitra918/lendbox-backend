@@ -55,7 +55,7 @@ export function setupSwagger(app: INestApplication, config: AppConfig) {
         '',
         '**Authentication:** admin routes require a JWT from `POST /auth/admin/login`, sent as `Authorization: Bearer <token>` or via the HttpOnly cookie set at login. Cookie-authenticated POST/PATCH requests must come from an allowed admin Origin.',
         '',
-        '**Statuses:** received → pending_loan_agreement (send-agreement) → loan_agreement_signed (verified signature only) → approved → funded. declined/withdrawn are available to admins from any non-terminal state except approved→declined. Workflow status is not itself a credit decision, contract execution or disbursement.',
+        '**Statuses:** received → approved → funded. declined/withdrawn are available to admins from received or approved; funding is only possible from approved. Loan agreements carry their own status and do not change the application status. Workflow status is not itself a credit decision, contract execution or disbursement.',
         '',
         'All examples use fictitious data.',
       ].join('\n'),

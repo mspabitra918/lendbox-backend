@@ -23,16 +23,16 @@ export class AdminAgreementsController {
   @ApiOperation({
     summary: 'Send loan agreement',
     description:
-      'Allowed when the application is `received` or `pending_loan_agreement`. Creates the agreement, registers it with the ' +
+      'Allowed when the application is `received` or `approved`. Creates the agreement, registers it with the ' +
       'generates a single-use signing token (only its SHA-256 is stored), queues the ' +
-      'invitation email and moves the application to `pending_loan_agreement` — atomically.\n\n' +
+      'invitation email — atomically. The application status is not changed.\n\n' +
       'Idempotent: if an open, unexpired agreement exists it is returned (`created: false`) and no email is sent. ' +
       'Use `resend: true` to void it and issue a new one. Expired agreements are replaced automatically.',
   })
   @ApiWrapped(null, {
     status: 201,
     example: {
-      created: true, message: 'Loan agreement created and invitation email queued.', applicationStatus: 'pending_loan_agreement',
+      created: true, message: 'Loan agreement created and invitation email queued.', applicationStatus: 'received',
       agreement: { id: '9a8b7c6d-1111-4222-8333-944455556666', applicationId: '56T65T', provider: 'internal', status: 'sent', sentAt: '2026-10-18T09:02:11.000Z', expiresAt: '2026-10-21T09:02:11.000Z' },
     },
   })

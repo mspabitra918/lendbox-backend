@@ -20,7 +20,7 @@ export class ApplicationFiltersDto extends PaginationQueryDto {
   @IsOptional() @IsIn(SORTABLE_FIELDS)
   sortBy: SortableField = 'submittedAt';
 
-  @ApiPropertyOptional({ description: 'One or more statuses, comma-separated', example: 'received,pending_loan_agreement', enum: APPLICATION_STATUSES, isArray: true })
+  @ApiPropertyOptional({ description: 'One or more statuses, comma-separated', example: 'received,approved', enum: APPLICATION_STATUSES, isArray: true })
   @IsOptional() @Transform(toList) @IsArray() @ArrayMaxSize(7) @IsIn(APPLICATION_STATUSES, { each: true })
   status?: ApplicationStatus[];
 

@@ -8,8 +8,7 @@ export class UpdateApplicationStatusDto {
     enum: ADMIN_SETTABLE_STATUSES,
     example: 'approved',
     description:
-      'Admins may set only approved, declined, withdrawn or funded. pending_loan_agreement is set by send-agreement; ' +
-      'loan_agreement_signed only by verified signature.',
+      'Admins may set only approved, declined, withdrawn or funded. funded is only allowed from approved.',
   })
   @IsIn(ADMIN_SETTABLE_STATUSES, { message: `status must be one of: ${ADMIN_SETTABLE_STATUSES.join(', ')}` })
   status: AdminSettableStatus;

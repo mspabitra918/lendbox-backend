@@ -20,7 +20,6 @@ export function toAdminSummary(a: Application) {
   return {
     id: a.id,
     uuid: a.uuid,
-    reference: a.reference,
     status: a.status,
     applicant: {
       firstName: a.firstName,
@@ -45,7 +44,7 @@ export function toAdminDetail(a: Application) {
     ),
     canSendAgreement: [
       ApplicationStatus.RECEIVED,
-      ApplicationStatus.PENDING_LOAN_AGREEMENT,
+      ApplicationStatus.APPROVED,
     ].includes(a.status),
     loan: {
       amount: num(a.loanAmount),

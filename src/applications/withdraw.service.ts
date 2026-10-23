@@ -40,8 +40,6 @@ export class WithdrawService {
 
     const eligibleStatuses: ApplicationStatus[] = [
       ApplicationStatus.RECEIVED,
-      ApplicationStatus.PENDING_LOAN_AGREEMENT,
-      ApplicationStatus.LOAN_AGREEMENT_SIGNED,
       ApplicationStatus.APPROVED,
     ];
 

@@ -6,8 +6,6 @@
  */
 export enum ApplicationStatus {
   RECEIVED = "received",
-  PENDING_LOAN_AGREEMENT = "pending_loan_agreement",
-  LOAN_AGREEMENT_SIGNED = "loan_agreement_signed",
   APPROVED = "approved",
   DECLINED = "declined",
   WITHDRAWN = "withdrawn",
@@ -20,10 +18,6 @@ export const APPLICATION_STATUSES = Object.values(ApplicationStatus);
 export enum TransitionActor {
   /** An authenticated admin via the status endpoint. */
   ADMIN = "admin",
-  /** The agreements module after successfully initiating an agreement. */
-  AGREEMENT_INITIATION = "agreement_initiation",
-  /** The agreements module after a verified signature. */
-  SIGNATURE_VERIFICATION = "signature_verification",
   /** The system recording a new submission. */
   SUBMISSION = "submission",
 }
@@ -36,29 +30,20 @@ const A = TransitionActor;
 /**
  * The single source of truth for allowed transitions. Anything not listed is
  * rejected. Notably:
- *  - pending_loan_agreement can only be entered by initiating an agreement;
- *  - loan_agreement_signed can only be entered via verified signature;
- *  - signing never approves; approval requires an admin;
+ *  - received → approved | declined | withdrawn (cannot be funded directly);
+ *  - approved → funded | declined | withdrawn;
  *  - declined / withdrawn / funded are terminal.
+ * Loan agreements are tracked on their own record and never change this status.
  */
 export const TRANSITIONS: Record<ApplicationStatus, Rule[]> = {
   [S.RECEIVED]: [
-    { to: S.PENDING_LOAN_AGREEMENT, actors: [A.AGREEMENT_INITIATION] },
-    { to: S.DECLINED, actors: [A.ADMIN] },
-    { to: S.WITHDRAWN, actors: [A.ADMIN] },
-  ],
-  [S.PENDING_LOAN_AGREEMENT]: [
-    { to: S.LOAN_AGREEMENT_SIGNED, actors: [A.SIGNATURE_VERIFICATION] },
-    { to: S.DECLINED, actors: [A.ADMIN] },
-    { to: S.WITHDRAWN, actors: [A.ADMIN] },
-  ],
-  [S.LOAN_AGREEMENT_SIGNED]: [
     { to: S.APPROVED, actors: [A.ADMIN] },
     { to: S.DECLINED, actors: [A.ADMIN] },
     { to: S.WITHDRAWN, actors: [A.ADMIN] },
   ],
   [S.APPROVED]: [
     { to: S.FUNDED, actors: [A.ADMIN] },
+    { to: S.DECLINED, actors: [A.ADMIN] },
     { to: S.WITHDRAWN, actors: [A.ADMIN] },
   ],
   [S.DECLINED]: [],

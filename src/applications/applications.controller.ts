@@ -124,11 +124,11 @@ export class ApplicationsController {
   @ApiWrapped(null, {
     example: {
       applicationId: "7NY1FD",
-      status: "pending_loan_agreement",
+      status: "approved",
       submittedAt: "2026-10-17T10:15:00.000Z",
       history: [
         { status: "received", at: "2026-10-17T10:15:00.000Z" },
-        { status: "pending_loan_agreement", at: "2026-10-18T09:02:11.000Z" },
+        { status: "approved", at: "2026-10-18T09:02:11.000Z" },
       ],
       applicant: { firstName: "Jane" },
       loan: { amount: 5000, purpose: "debt_consolidation" },

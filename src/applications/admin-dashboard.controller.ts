@@ -16,8 +16,8 @@ export class AdminDashboardController {
     example: {
       totalApplications: 137,
       submitted: { today: 4, last7Days: 22, last30Days: 88 },
-      byStatus: { received: 40, pending_loan_agreement: 12, loan_agreement_signed: 9, approved: 30, declined: 25, withdrawn: 6, funded: 15 },
-      requestedAmountByStatus: { received: 210000, pending_loan_agreement: 64000, loan_agreement_signed: 51000, approved: 160000, declined: 98000, withdrawn: 21000, funded: 87000 },
+      byStatus: { received: 61, approved: 30, declined: 25, withdrawn: 6, funded: 15 },
+      requestedAmountByStatus: { received: 325000, approved: 160000, declined: 98000, withdrawn: 21000, funded: 87000 },
       emailDelivery: { queued: 1, sending: 0, sent: 402, failed: 2 },
       generatedAt: '2026-10-17T12:00:00.000Z',
     },

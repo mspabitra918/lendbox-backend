@@ -1,14 +1,24 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/sequelize';
-import { Transaction } from 'sequelize';
-import { Sequelize } from 'sequelize-typescript';
-import { AuditService } from '../audit/audit.service';
-import type { RequestContext } from '../common/utils/request-context';
 import {
-  allowedNextStatuses, ApplicationStatus, isTransitionAllowed, REASON_REQUIRED, TransitionActor,
-} from './application-status';
-import { ApplicationStatusHistory } from './models/application-status-history.model';
-import { Application } from './models/application.model';
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectConnection, InjectModel } from "@nestjs/sequelize";
+import { Transaction } from "sequelize";
+import { Sequelize } from "sequelize-typescript";
+import { AuditService } from "../audit/audit.service";
+import type { RequestContext } from "../common/utils/request-context";
+import { NotificationsService } from "../notifications/notifications.service";
+import {
+  allowedNextStatuses,
+  ApplicationStatus,
+  isTransitionAllowed,
+  REASON_REQUIRED,
+  TransitionActor,
+} from "./application-status";
+import { ApplicationStatusHistory } from "./models/application-status-history.model";
+import { Application } from "./models/application.model";
 
 export interface TransitionRequest {
   applicationId: string;
@@ -42,8 +52,10 @@ export class StatusTransitionService {
   constructor(
     @InjectConnection() private readonly sequelize: Sequelize,
     @InjectModel(Application) private readonly applications: typeof Application,
-    @InjectModel(ApplicationStatusHistory) private readonly history: typeof ApplicationStatusHistory,
+    @InjectModel(ApplicationStatusHistory)
+    private readonly history: typeof ApplicationStatusHistory,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async transition(req: TransitionRequest): Promise<TransitionResult> {
@@ -51,23 +63,41 @@ export class StatusTransitionService {
     return this.sequelize.transaction((t) => this.run(req, t));
   }
 
-  private async run(req: TransitionRequest, transaction: Transaction): Promise<TransitionResult> {
-    const app = await this.applications.findByPk(req.applicationId, { transaction, lock: transaction.LOCK.UPDATE });
-    if (!app) throw new NotFoundException('Application not found.');
+  private async run(
+    req: TransitionRequest,
+    transaction: Transaction,
+  ): Promise<TransitionResult> {
+    const app = await this.applications.findByPk(req.applicationId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (!app) throw new NotFoundException("Application not found.");
 
     const from = app.status;
-    if (from === req.to) return { application: app, changed: false, from, to: req.to };
+    if (from === req.to)
+      return { application: app, changed: false, from, to: req.to };
 
     if (!isTransitionAllowed(from, req.to, req.actor)) {
       throw new ConflictException({
-        code: 'INVALID_STATUS_TRANSITION',
+        code: "INVALID_STATUS_TRANSITION",
         message: `Cannot change status from "${from}" to "${req.to}".`,
-        details: { from, to: req.to, allowed: allowedNextStatuses(from, req.actor) },
+        details: {
+          from,
+          to: req.to,
+          allowed: allowedNextStatuses(from, req.actor),
+        },
       });
     }
     const reason = req.reason?.trim() || null;
-    if (req.actor === TransitionActor.ADMIN && REASON_REQUIRED.includes(req.to) && !reason) {
-      throw new BadRequestException({ code: 'REASON_REQUIRED', message: `A reason is required to set status "${req.to}".` });
+    if (
+      req.actor === TransitionActor.ADMIN &&
+      REASON_REQUIRED.includes(req.to) &&
+      !reason
+    ) {
+      throw new BadRequestException({
+        code: "REASON_REQUIRED",
+        message: `A reason is required to set status "${req.to}".`,
+      });
     }
 
     const now = new Date();
@@ -86,16 +116,39 @@ export class StatusTransitionService {
     );
     await this.audit.record(
       {
-        actorType: req.adminId ? 'admin' : req.actor === TransitionActor.SIGNATURE_VERIFICATION ? 'esign_provider' : 'system',
+        actorType: req.adminId ? "admin" : "system",
         actorId: req.adminId ?? null,
-        action: 'application.status_changed',
-        entityType: 'application',
+        action: "application.status_changed",
+        entityType: "application",
         entityId: app.id,
-        metadata: { from, to: req.to, actor: req.actor, ...(reason ? { reason } : {}) },
+        metadata: {
+          from,
+          to: req.to,
+          actor: req.actor,
+          ...(reason ? { reason } : {}),
+        },
         ctx: req.ctx,
       },
       transaction,
     );
+    if (req.actor !== TransitionActor.SUBMISSION) {
+      await this.notifications.enqueue(
+        "application_status_changed",
+        app.email,
+        {
+          firstName: app.firstName,
+          applicationId: app.id,
+          fromStatus: from,
+          toStatus: req.to,
+        },
+        {
+          dedupeKey: `application:${app.id}:status:${req.to}`,
+          related: { type: "application", id: app.id },
+          transaction,
+        },
+      );
+      transaction.afterCommit(() => this.notifications.kick());
+    }
     return { application: app, changed: true, from, to: req.to };
   }
 }
